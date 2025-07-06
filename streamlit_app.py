@@ -1,111 +1,115 @@
 import streamlit as st
 import zipfile
 import os
-import tempfile
 import shutil
+import tempfile
 import pandas as pd
 from pathlib import Path
 
-st.set_page_config(page_title="Image Folder to CSV Mapper", layout="wide")
-st.title("📦 Bildstruktur zu CSV-Export")
+st.set_page_config(page_title="Image CSV Generator", layout="wide")
+st.title("📸 CSV Generator for Structured Image Exports")
 
-st.markdown("""
-Willkommen! Du kannst entweder:
-- Eine **ZIP-Datei mit Ordnerstruktur** hochladen (z. B. Produkt > Farbe > Bilder)
-- Oder **einzelne Bilddateien mit bestimmten Dateinamen** (z. B. `CSF440-119.jpg`) hochladen
+MODE = st.radio("Wähle Upload-Methode:", ["Ordnerstruktur (ZIP-Upload)", "Dateinamen (Einzel-Upload)"])
 
-Danach kannst du selbst festlegen, was im Pfad oder Dateinamen was bedeutet.
-""")
+SEPARATOR_OPTIONS = ["-", "_", " ", "."]
 
-# --- Auswahl der Upload-Methode ---
-mode = st.radio("Wie möchtest du deine Bilder hochladen?", ["Ordnerstruktur als ZIP", "Einzeldateien mit Dateinamenslogik"])
+# --- COMMON UTILITIES ---
+def extract_zip(zip_file):
+    temp_dir = tempfile.mkdtemp()
+    with zipfile.ZipFile(zip_file, 'r') as zip_ref:
+        zip_ref.extractall(temp_dir)
+    return temp_dir
 
-# --- Gemeinsame CSV-Exportfunktion ---
-def export_csv(data, filename="export.csv"):
-    df = pd.DataFrame(data)
-    csv_path = os.path.join(tempfile.gettempdir(), filename)
-    df.to_csv(csv_path, index=False)
-    st.success("✅ CSV erfolgreich erstellt!")
-    with open(csv_path, "rb") as f:
-        st.download_button("📥 CSV herunterladen", f, file_name=filename)
+def get_all_image_paths(directory):
+    valid_exts = ['.jpg', '.jpeg', '.png', '.webp']
+    image_paths = []
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            if Path(file).suffix.lower() in valid_exts:
+                full_path = os.path.join(root, file)
+                rel_path = os.path.relpath(full_path, directory)
+                image_paths.append((rel_path, full_path))
+    return image_paths
 
-# --- 1. ZIP-Modus ---
-if mode == "Ordnerstruktur als ZIP":
-    zip_file = st.file_uploader("ZIP-Datei hochladen", type="zip")
+# --- MODE 1: FOLDER STRUCTURE ---
+if MODE == "Ordnerstruktur (ZIP-Upload)":
+    zip_file = st.file_uploader("Lade deine ZIP-Datei mit Bildern hoch:", type="zip")
 
     if zip_file:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            zip_path = os.path.join(tmpdir, "upload.zip")
-            with open(zip_path, "wb") as f:
-                f.write(zip_file.read())
+        with st.spinner("Extrahiere ZIP und analysiere Struktur..."):
+            base_dir = extract_zip(zip_file)
+            image_paths = get_all_image_paths(base_dir)
 
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(tmpdir)
+            records = []
+            for rel_path, full_path in image_paths:
+                parts = Path(rel_path).parts
+                records.append({
+                    "Pfad": rel_path,
+                    **{f"Ebene_{i+1}": parts[i] for i in range(len(parts) - 1)},
+                    "Datei": parts[-1]
+                })
 
-            base_folder = Path(tmpdir)
-            image_data = []
+            df = pd.DataFrame(records)
 
-            st.subheader("📂 Gefundene Pfade & Definition")
+        st.subheader("🔧 Ordnerstruktur zuweisen")
+        col_names = df.columns.tolist()
+        item_col = st.selectbox("Itemcode-Ebene:", col_names)
+        color_col = st.selectbox("Farbcode-Ebene:", col_names)
 
-            for root, dirs, files in os.walk(tmpdir):
-                for file in files:
-                    if file.lower().endswith(('.jpg', '.jpeg', '.png')):
-                        full_path = Path(root) / file
-                        rel_path = full_path.relative_to(base_folder)
-                        parts = rel_path.parts
+        df['Itemcode'] = df[item_col]
+        df['Farbcode'] = df[color_col]
+        df['Bildlink'] = df['Pfad']  # Platzhalter
 
-                        if len(parts) < 3:
-                            continue  # Nicht tief genug
+        final_df = df[['Itemcode', 'Farbcode', 'Bildlink']]
+        st.dataframe(final_df)
 
-                        product = parts[-3]
-                        color = parts[-2]
-                        filename = parts[-1]
+        csv_data = final_df.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 CSV herunterladen", data=csv_data, file_name="export_folders.csv", mime="text/csv")
 
-                        public_url = f"https://example.com/{rel_path.as_posix()}"
+        shutil.rmtree(base_dir)
 
-                        image_data.append({
-                            "Item Code": product,
-                            "Color Code": color,
-                            "Image File": filename,
-                            "Public URL": public_url
-                        })
-
-            if image_data:
-                export_csv(image_data, filename="zip_folder_export.csv")
-            else:
-                st.warning("Keine geeigneten Bildpfade gefunden.")
-
-# --- 2. Dateinamen-Modus ---
-elif mode == "Einzeldateien mit Dateinamenslogik":
-    uploaded_files = st.file_uploader("Bilddateien hochladen", accept_multiple_files=True, type=["jpg", "jpeg", "png"])
-
-    trenner = st.selectbox("Wie ist der Dateiname getrennt?", ["-", "_", " ", "."])
-    reihenfolge = st.radio("Was kommt zuerst im Dateinamen?", ["Item Code zuerst", "Color Code zuerst"])
+# --- MODE 2: FILENAME PARSING ---
+elif MODE == "Dateinamen (Einzel-Upload)":
+    uploaded_files = st.file_uploader("Lade deine Bilddateien hoch:", type=['jpg', 'jpeg', 'png', 'webp'], accept_multiple_files=True)
 
     if uploaded_files:
-        image_data = []
+        separator = st.selectbox("Wähle Trennzeichen im Dateinamen:", SEPARATOR_OPTIONS + ["Custom"])
+        custom_sep = ""
+        if separator == "Custom":
+            custom_sep = st.text_input("Eigener Trenner (z. B. '__' oder '--'):")
+
+        sep = custom_sep if separator == "Custom" else separator
+
+        preview_names = [file.name for file in uploaded_files[:5]]
+        st.write("Beispiel Dateinamen:", preview_names)
+
+        part_mapping = ["Ignorieren", "Itemcode", "Farbcode", "Eigener Tag"]
+
+        example_split = uploaded_files[0].name.split(sep)
+        st.write(f"Dateiname aufgeteilt in {len(example_split)} Teile:", example_split)
+
+        st.subheader("🔧 Teile zuweisen")
+        assignments = []
+        for i, part in enumerate(example_split):
+            assign = st.selectbox(f"Teil {i+1} ('{part}') ist:", part_mapping, key=f"part_{i}")
+            assignments.append(assign)
+
+        rows = []
         for file in uploaded_files:
-            filename = Path(file.name).stem
-            parts = filename.split(trenner)
+            parts = file.name.split(sep)
+            mapped = {"Itemcode": "", "Farbcode": "", "Eigener Tag": ""}
+            for i, label in enumerate(assignments):
+                if i < len(parts) and label != "Ignorieren":
+                    if label == "Eigener Tag":
+                        mapped[label] += parts[i] + " "
+                    else:
+                        mapped[label] = parts[i]
+            mapped['Bildlink'] = file.name
+            rows.append(mapped)
 
-            if len(parts) < 2:
-                continue
+        df = pd.DataFrame(rows)
+        df['Eigener Tag'] = df['Eigener Tag'].str.strip()
 
-            item, color = (parts[0], parts[1]) if reihenfolge == "Item Code zuerst" else (parts[1], parts[0])
-
-            temp_path = os.path.join(tempfile.gettempdir(), file.name)
-            with open(temp_path, "wb") as f:
-                f.write(file.read())
-
-            # In echtem Tool hier: Hochladen oder Link erzeugen
-            fake_url = f"https://example.com/uploads/{file.name}"
-
-            image_data.append({
-                "Item Code": item,
-                "Color Code": color,
-                "Image File": file.name,
-                "Public URL": fake_url
-            })
-
-        if image_data:
-            export_csv(image_data, filename="filename_based_export.csv")
+        st.dataframe(df)
+        csv_data = df.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 CSV herunterladen", data=csv_data, file_name="export_filenames.csv", mime="text/csv")
