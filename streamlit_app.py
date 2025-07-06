@@ -14,22 +14,34 @@ with st.expander("ℹ️ Anleitung anzeigen / ausblenden", expanded=True):
     ## 📘 Anleitung
 
     1. **Dropbox-Zugriff vorbereiten**
-       - Erstelle eine Dropbox App mit **App-Folder-Zugriff** unter [Dropbox App Console](https://www.dropbox.com/developers/apps).
-       - Aktiviere die Scopes `files.metadata.read`, `files.content.read`, `sharing.read`.
-       - Generiere ein Access Token.
+       - Gehe auf die [Dropbox App Console](https://www.dropbox.com/developers/apps)
+       - Klicke auf **"Create App"** und wähle:
+         - **Scoped Access**
+         - **App Folder**
+       - Vergib einen eindeutigen App-Namen (z. B. `ImageExporter`)
+       - Klicke nach der Erstellung auf den Tab **Permissions**
+         - Aktiviere:
+           - `files.metadata.read`
+           - `files.content.read`
+           - `sharing.read`
+       - Dann oben in **Settings** wechseln
+         - Scrolle nach unten und generiere unter **OAuth 2** dein Access Token
+       - Kopiere das Token in dieses Tool
 
-    2. **Token eingeben**
-       - Füge den Token unten ein, um auf deinen App-Folder zuzugreifen.
+       🔄 **Wichtig:** Dropbox legt automatisch einen Ordner an:  
+       `Apps/DeinAppName/`  
+       → Lege deine Bilder dort in **einen beliebigen Unterordner**, z. B.:  
+       `Apps/ImageExporter/Sommer/Artikel XY/`
 
-    3. **Methode wählen**
-       - **Ordnerstruktur**: Dateien z. B. nach `/Itemcode/Farbcode/Bild.jpg`
-       - **Dateiname**: Z. B. `ITEM-FARBE-VERSION.jpg`
+    2. **Methode wählen**
+       - **Ordnerstruktur**: Pfad wird analysiert
+       - **Dateiname**: Tokens im Dateinamen werden genutzt
 
-    4. **Regeln definieren**
-       - Weise pro Ebene oder Namensbestandteil eine Bedeutung zu: `Itemcode`, `Farbcode`, `Ignorieren`, `Custom`
+    3. **Regeln festlegen**
+       - Weise jeder Ebene oder jedem Token eine Bedeutung zu (Itemcode, Farbe etc.)
 
-    5. **CSV exportieren**
-       - Vorschau prüfen → CSV herunterladen → fertig!
+    4. **CSV exportieren**
+       - CSV prüfen und direkt herunterladen
     """)
 
 # === SESSION STATE ===
@@ -182,7 +194,7 @@ if token:
                 df = pd.DataFrame(rows)
                 st.dataframe(df)
                 csv_data = df.to_csv(index=False).encode("utf-8")
-                st.download_button("📥 CSV herunterladen", data=csv_data, file_name="export.csv", mime="text/csv")
+                st.download_button("📅 CSV herunterladen", data=csv_data, file_name="export.csv", mime="text/csv")
 
             else:
                 st.warning("Keine Bilddateien gefunden.")
