@@ -71,17 +71,18 @@ if token:
 
             if image_files:
                 st.success(f"{len(image_files)} Bilder gefunden")
-                example_file = image_files[0]
+
+                # Beispielpfad mit maximaler Tiefe finden
+                longest_path_file = max(image_files, key=lambda f: len(Path(f.path_display).parts))
+                example_path_parts = Path(longest_path_file.path_display).parts
+                editable_parts = list(example_path_parts[:-1])
 
                 rows = []
                 itemcode = colorcode = ""
 
                 if method == "Ordnerstruktur":
                     st.subheader("3. 📁 Ordnerstruktur zuordnen")
-                    path_parts = Path(example_file.path_display).parts
-                    editable_parts = list(path_parts[:-1])
-
-                    st.markdown(f"Beispielpfad: `/{'/'.join(path_parts)}`")
+                    st.markdown(f"Beispielpfad (tiefster gefunden): `/{'/'.join(example_path_parts)}`")
                     folder_mapping = {}
                     for i, part in enumerate(editable_parts):
                         key = f"level_{i}"
@@ -95,8 +96,8 @@ if token:
 
                 elif method == "Dateiname":
                     st.subheader("3. 📝 Dateiname analysieren")
-                    filename = Path(example_file.name).stem
-                    st.markdown(f"Beispieldatei: `{example_file.name}`")
+                    filename = Path(image_files[0].name).stem
+                    st.markdown(f"Beispieldatei: `{image_files[0].name}`")
 
                     sep_count = st.number_input("Anzahl der Trennzeichen-Felder", min_value=1, max_value=5, value=st.session_state.separator_count, key="sep_count")
                     st.session_state.separator_count = sep_count
