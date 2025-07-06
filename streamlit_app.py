@@ -1,158 +1,103 @@
 import streamlit as st
-import zipfile
+import dropbox
 import os
-import shutil
-import tempfile
 import pandas as pd
 from pathlib import Path
 
 # === PAGE CONFIG ===
 st.set_page_config(page_title="Image CSV Generator", layout="wide")
-st.title("📸 CSV Generator for Structured Image Exports")
+st.title("📸 CSV Generator mit Dropbox App Folder")
 
-# === UI SETUP ===
-MODE = st.radio("Wähle Upload-Methode:", ["Ordnerstruktur (ZIP-Upload)", "Dateinamen (Einzel-Upload oder ZIP)"])
-SEPARATOR_OPTIONS = ["-", "_", " ", "."]
+# === SESSION STATE ===
+if "dbx_token" not in st.session_state:
+    st.session_state.dbx_token = ""
 
-# === UTILITIES ===
-def extract_zip(zip_file):
-    temp_dir = tempfile.mkdtemp()
-    with zipfile.ZipFile(zip_file, 'r') as zip_ref:
-        zip_ref.extractall(temp_dir)
-    return temp_dir
+# === UI: DROPBOX TOKEN INPUT ===
+st.subheader("🔐 Dropbox App-Zugriff")
+st.markdown("""
+**Schritt 1:** Erstelle eine Dropbox-App mit Zugriff auf einen App-Ordner (z. B. `Apps/ImageExporter/`)
 
-def get_all_image_paths(directory):
-    valid_exts = ['.jpg', '.jpeg', '.png', '.webp']
-    image_paths = []
-    for root, dirs, files in os.walk(directory):
-        for file in files:
-            if Path(file).suffix.lower() in valid_exts:
-                full_path = os.path.join(root, file)
-                rel_path = os.path.relpath(full_path, directory)
-                image_paths.append((rel_path, full_path))
-    return image_paths
+**Schritt 2:** Generiere ein Zugriffstoken (Scoped App, nur App Folder)
 
-# === DROPBOX LINK EINGABE ===
-base_url = st.text_input("🔗 Dropbox-Basislink (optional, endet mit / oder ohne Dateiname):")
-if base_url and not base_url.endswith("/"):
-    base_url += "/"
+**Schritt 3:** Füge das Token hier ein:
+""")
+token = st.text_input("🔑 Dropbox Access Token", type="password", value=st.session_state.dbx_token)
 
-# === FOLDER STRUCTURE MODE ===
-if MODE == "Ordnerstruktur (ZIP-Upload)":
-    zip_file = st.file_uploader("Lade deine ZIP-Datei mit Bildern hoch:", type="zip")
+# === UI: METHOD SELECTION ===
+method = st.radio(
+    "📂 Welche Methode möchtest du verwenden, um Itemcode und Farbcode zu extrahieren?",
+    ["Ordnerstruktur verwenden", "Dateinamen analysieren"],
+    help="Wähle, ob die Informationen aus der Ordnerstruktur oder aus den Dateinamen extrahiert werden sollen."
+)
 
-    if zip_file:
-        with st.spinner("Extrahiere ZIP und analysiere Struktur..."):
-            base_dir = extract_zip(zip_file)
-            image_paths = get_all_image_paths(base_dir)
+if method == "Dateinamen analysieren":
+    st.markdown("**Beispiel:** `CSF440-119.jpg` → Trennzeichen `-` → Itemcode = CSF440, Farbcode = 119")
+    filename_separator = st.text_input("Trennzeichen für Dateinamen", value="-", help="Nutze z. B. `-`, `_`, `.`, um die Teile des Dateinamens zu trennen.")
 
-            records = []
-            for rel_path, full_path in image_paths:
-                parts = Path(rel_path).parts
-                records.append({
-                    "Pfad": rel_path,
-                    **{f"Ebene {i+1}": parts[i] for i in range(len(parts) - 1)},
-                    "Datei": parts[-1]
-                })
+if token:
+    st.session_state.dbx_token = token
+    dbx = dropbox.Dropbox(token)
 
-            df = pd.DataFrame(records)
+    try:
+        folders = []
+        res = dbx.files_list_folder(path="")
+        for entry in res.entries:
+            if isinstance(entry, dropbox.files.FolderMetadata):
+                folders.append(entry.name)
 
-        st.subheader("🔧 Ordnerstruktur zuweisen")
-        col_names = [col for col in df.columns if col.startswith("Ebene")]
-        export_df = df.copy()
+        selected_folder = st.selectbox("📁 Wähle einen Unterordner aus dem App Folder:", folders)
 
-        for col in col_names:
-            example_value = df[col].iloc[0] if not df[col].isna().all() else "(leer)"
-            with st.expander(f"{col} (z. B. '{example_value}')"):
-                role = st.selectbox(f"Was ist '{example_value}'?", ["Ignorieren", "Itemcode", "Farbcode", "Custom"], key=f"role_{col}")
-                if role == "Itemcode":
-                    export_df.insert(0, "Itemcode", df[col])
-                elif role == "Farbcode":
-                    export_df.insert(1, "Farbcode", df[col])
-                elif role == "Custom":
-                    custom_label = st.text_input(f"Eigene Bezeichnung für {col}:", key=f"label_{col}")
-                    export_df[custom_label] = df[col]
+        if selected_folder:
+            st.success(f"📂 Gewählter Ordner: {selected_folder}")
 
-        export_df["Bildname"] = df["Datei"]
-        export_df["Bildlink"] = base_url + df["Datei"] if base_url else df["Pfad"]
+            # Alle Dateien im Ordner auflisten (rekursiv möglich)
+            all_files = []
+            def list_files_recursive(path):
+                res = dbx.files_list_folder(path)
+                for entry in res.entries:
+                    if isinstance(entry, dropbox.files.FileMetadata):
+                        all_files.append(entry)
+                    elif isinstance(entry, dropbox.files.FolderMetadata):
+                        list_files_recursive(entry.path_lower)
+            list_files_recursive(f"/{selected_folder}")
 
-        final_cols = [col for col in export_df.columns if col not in df.columns or col in ["Bildlink", "Bildname"]]
-        final_df = export_df[final_cols]
-        st.dataframe(final_df)
+            image_exts = [".jpg", ".jpeg", ".png", ".webp"]
+            image_files = [f for f in all_files if Path(f.name).suffix.lower() in image_exts]
 
-        csv_data = final_df.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 CSV herunterladen", data=csv_data, file_name="export_folders.csv", mime="text/csv")
+            if not image_files:
+                st.warning("Keine Bilddateien gefunden.")
+            else:
+                st.success(f"✅ {len(image_files)} Bilddateien gefunden.")
 
-        shutil.rmtree(base_dir)
+                # === CSV-Export-Logik ===
+                rows = []
+                for file in image_files:
+                    path_parts = Path(file.path_display).parts
+                    filename = Path(file.name).name
+                    link = dbx.sharing_create_shared_link_with_settings(file.path_lower).url.replace("?dl=0", "?raw=1")
 
-# === FILENAME MODE ===
-elif MODE == "Dateinamen (Einzel-Upload oder ZIP)":
-    zip_file = st.file_uploader("Lade ZIP mit Bildern **oder** einzelne Bilddateien hoch:", type=["zip", "jpg", "jpeg", "png", "webp"], accept_multiple_files=False)
-
-    all_files = []
-    if zip_file and zip_file.name.endswith(".zip"):
-        temp_dir = extract_zip(zip_file)
-        all_files = [os.path.join(dp, f) for dp, dn, filenames in os.walk(temp_dir) for f in filenames if f.lower().endswith(('jpg', 'jpeg', 'png', 'webp'))]
-    elif zip_file:
-        st.warning("Bitte aktiviere den Mehrfach-Upload für Einzeldateien.")
-
-    uploaded_files = st.file_uploader("Oder lade mehrere Bilddateien direkt hoch:", type=['jpg', 'jpeg', 'png', 'webp'], accept_multiple_files=True)
-    if uploaded_files:
-        all_files += [f.name for f in uploaded_files]
-
-    if all_files:
-        separator = st.selectbox("Wähle Haupt-Trennzeichen im Dateinamen:", SEPARATOR_OPTIONS + ["Custom"])
-        custom_sep = ""
-        if separator == "Custom":
-            custom_sep = st.text_input("Eigener Trenner (z. B. '__' oder '--'):")
-
-        sep = custom_sep if separator == "Custom" else separator
-
-        additional_separators = st.text_input("Weitere Trennzeichen (kommagetrennt):", value="")
-        all_seps = [sep] + [s.strip() for s in additional_separators.split(",") if s.strip()]
-
-        remove_parts = st.text_input("Entferne Teile aus Dateinamen (kommagetrennt):", value="")
-        remove_keywords = [x.strip() for x in remove_parts.split(",") if x.strip()]
-
-        preview_names = all_files[:5]
-        st.write("Beispiel Dateinamen:", preview_names)
-
-        # Beispiel-Split
-        example_name = Path(all_files[0]).name
-        for keyword in remove_keywords:
-            example_name = example_name.replace(keyword, "")
-        for sp in all_seps:
-            example_name = example_name.replace(sp, "|")
-        example_split = example_name.split("|")
-
-        st.subheader("🔧 Teile zuweisen")
-        part_mapping = ["Ignorieren", "Itemcode", "Farbcode", "Eigener Tag"]
-        assignments = []
-        for i, part in enumerate(example_split):
-            assign = st.selectbox(f"Teil {i+1} ('{part}') ist:", part_mapping, key=f"part_{i}")
-            assignments.append(assign)
-
-        rows = []
-        for file in all_files:
-            filename = Path(file).name
-            for keyword in remove_keywords:
-                filename = filename.replace(keyword, "")
-            for sp in all_seps:
-                filename = filename.replace(sp, "|")
-            parts = filename.split("|")
-            mapped = {"Itemcode": "", "Farbcode": "", "Eigener Tag": ""}
-            for i, label in enumerate(assignments):
-                if i < len(parts) and label != "Ignorieren":
-                    if label == "Eigener Tag":
-                        mapped[label] += parts[i] + " "
+                    if method == "Ordnerstruktur verwenden":
+                        itemcode = path_parts[-3] if len(path_parts) >= 3 else ""
+                        colorcode = path_parts[-2] if len(path_parts) >= 2 else ""
                     else:
-                        mapped[label] = parts[i]
-            mapped['Bildlink'] = base_url + filename if base_url else filename
-            rows.append(mapped)
+                        name_core = filename.rsplit(".", 1)[0]  # ohne Dateiendung
+                        parts = name_core.split(filename_separator)
+                        itemcode = parts[0] if len(parts) > 0 else ""
+                        colorcode = parts[1] if len(parts) > 1 else ""
 
-        df = pd.DataFrame(rows)
-        df['Eigener Tag'] = df['Eigener Tag'].str.strip()
+                    rows.append({
+                        "Itemcode": itemcode,
+                        "Farbcode": colorcode,
+                        "Bildname": filename,
+                        "Bildlink": link
+                    })
 
-        st.dataframe(df)
-        csv_data = df.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 CSV herunterladen", data=csv_data, file_name="export_filenames.csv", mime="text/csv")
+                df = pd.DataFrame(rows)
+                st.dataframe(df)
+                csv_data = df.to_csv(index=False).encode("utf-8")
+                st.download_button("📥 CSV herunterladen", data=csv_data, file_name="dropbox_export.csv", mime="text/csv")
+
+    except Exception as e:
+        st.error(f"Fehler beim Dropbox-Zugriff: {e}")
+else:
+    st.info("Bitte gib dein Dropbox App Folder Token ein, um fortzufahren.")
