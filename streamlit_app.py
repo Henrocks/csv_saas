@@ -1,41 +1,76 @@
 import streamlit as st
+import zipfile
+import tempfile
 import os
 import pandas as pd
-from urllib.parse import urlparse
 
-st.title("CSV Generator for Image Directories")
+st.set_page_config(page_title="Bild-CSV Generator", layout="centered")
 
-mode = st.radio("Wie sind deine Dateien organisiert?", ["Nach Ordnerstruktur", "Nach Dateiname"])
+st.title("📁 CSV Generator für Bildverzeichnisse")
 
-uploaded_files = st.file_uploader("Lade deine Bilder hoch", accept_multiple_files=True, type=["jpg", "jpeg", "png"])
+# Auswahl: Struktur-Modus
+mode = st.radio(
+    "Wie sind deine Dateien organisiert?",
+    ["Nach Ordnerstruktur", "Nach Dateiname"],
+    index=0
+)
 
-def parse_filename(name):
-    parts = name.split(".")[0].split("-")
-    if len(parts) == 2:
-        return parts[0], parts[1]
-    return name, ""
+# Hinweis
+if mode == "Nach Ordnerstruktur":
+    st.markdown("**Hinweis:** Lade eine ZIP-Datei hoch, die deine Ordnerstruktur enthält.")
+else:
+    st.markdown("**Hinweis:** Lade einzelne Bilder hoch, die nach Artikelnamen/Farbcode benannt sind.")
 
-if st.button("CSV generieren"):
-    if not uploaded_files:
-        st.warning("Bitte zuerst Dateien hochladen.")
+uploaded_file = st.file_uploader(
+    "Lade deine Dateien hoch",
+    type=["zip"] if mode == "Nach Ordnerstruktur" else ["jpg", "jpeg", "png"],
+    accept_multiple_files=(mode == "Nach Dateiname")
+)
+
+if st.button("📄 CSV generieren") and uploaded_file:
+    data = []
+
+    if mode == "Nach Ordnerstruktur":
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            # ZIP entpacken
+            with zipfile.ZipFile(uploaded_file, "r") as zip_ref:
+                zip_ref.extractall(tmp_dir)
+
+            # Alle Bilder rekursiv durchsuchen
+            for root, _, files in os.walk(tmp_dir):
+                for file in files:
+                    if file.lower().endswith((".jpg", ".jpeg", ".png")):
+                        full_path = os.path.join(root, file)
+                        rel_path = os.path.relpath(full_path, tmp_dir)
+                        parts = rel_path.split(os.sep)
+
+                        product = parts[0] if len(parts) > 0 else ""
+                        color = parts[1] if len(parts) > 1 else ""
+                        filename = parts[-1]
+
+                        data.append({
+                            "Product Name": product,
+                            "Color": color,
+                            "Filename": filename,
+                            "Image URL": f"https://example.com/{rel_path.replace(os.sep, '/')}"
+                        })
     else:
-        data = []
-        for file in uploaded_files:
-            item_code, color_code = parse_filename(file.name)
-            public_url = f"https://fakehost.com/images/{file.name}"  # ← hier kommt später dein echter Link rein
+        for file in uploaded_file:
+            filename = file.name
+            name_part = os.path.splitext(filename)[0]
+            parts = name_part.split("-")
+            product = parts[0] if len(parts) > 0 else ""
+            color = parts[1] if len(parts) > 1 else ""
+
             data.append({
-                "Handle": item_code,
-                "Title": item_code,
-                "Image Src": public_url,
-                "Image Position": 1,
-                "Variant SKU": f"{item_code}-{color_code}",
-                "Option1 Name": "Color",
-                "Option1 Value": color_code
+                "Product Name": product,
+                "Color": color,
+                "Filename": filename,
+                "Image URL": f"https://example.com/{filename}"
             })
 
-        df = pd.DataFrame(data)
-        st.success("CSV wurde erfolgreich erstellt:")
-        st.dataframe(df)
+    df = pd.DataFrame(data)
+    st.success(f"{len(df)} Einträge verarbeitet.")
 
-        csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button("Download CSV", csv, "export.csv", "text/csv")
+    csv = df.to_csv(index=False).encode("utf-8")
+    st.download_button("📥 CSV herunterladen", csv, file_name="export.csv", mime="text/csv")
