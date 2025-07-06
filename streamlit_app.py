@@ -15,6 +15,8 @@ if "folder_mapping" not in st.session_state:
     st.session_state.folder_mapping = {}
 if "token_mapping" not in st.session_state:
     st.session_state.token_mapping = {}
+if "separator_count" not in st.session_state:
+    st.session_state.separator_count = 1
 
 # === Dropbox: Bestehenden Link oder neuen generieren ===
 def get_shared_link(dbx, path):
@@ -77,7 +79,7 @@ if token:
                 if method == "Ordnerstruktur":
                     st.subheader("3. 📁 Ordnerstruktur zuordnen")
                     path_parts = Path(example_file.path_display).parts
-                    editable_parts = list(path_parts[:-1])  # ohne Dateinamen
+                    editable_parts = list(path_parts[:-1])
 
                     st.markdown(f"Beispielpfad: `/{'/'.join(path_parts)}`")
                     folder_mapping = {}
@@ -96,9 +98,15 @@ if token:
                     filename = Path(example_file.name).stem
                     st.markdown(f"Beispieldatei: `{example_file.name}`")
 
-                    sep_input = st.text_input("Trennzeichen (kommagetrennt)", value="-._")
-                    separators = [s for s in sep_input]
-                    pattern = '|'.join(map(re.escape, separators))
+                    sep_count = st.number_input("Anzahl der Trennzeichen-Felder", min_value=1, max_value=5, value=st.session_state.separator_count, key="sep_count")
+                    st.session_state.separator_count = sep_count
+                    sep_inputs = []
+                    for i in range(sep_count):
+                        sep = st.text_input(f"Trennzeichen {i+1}", key=f"sep_{i}")
+                        if sep:
+                            sep_inputs.append(sep)
+
+                    pattern = '|'.join(map(re.escape, sep_inputs))
                     tokens = re.split(pattern, filename)
 
                     token_mapping = {}
@@ -129,9 +137,7 @@ if token:
                                 colorcode = part
 
                     elif method == "Dateiname":
-                        sep_input = st.text_input("", value="-._")  # Dummy zur Laufzeit-Abfrage
-                        separators = [s for s in sep_input]
-                        pattern = '|'.join(map(re.escape, separators))
+                        pattern = '|'.join(map(re.escape, sep_inputs))
                         tokens = re.split(pattern, filename)
                         itemcode = colorcode = ""
                         for i, token in enumerate(tokens):
