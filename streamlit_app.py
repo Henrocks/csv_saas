@@ -1,26 +1,29 @@
+# === SETUP UND BASIS ===
 import streamlit as st
-import zipfile
-import os
-import shutil
-import tempfile
+import os, shutil, zipfile, tempfile
 import pandas as pd
 from pathlib import Path
 
-st.set_page_config(page_title="Image CSV Generator", layout="wide")
-st.title("📸 CSV Generator for Structured Image Exports")
+# Grundkonfiguration der Seite
+doc_title = "📸 CSV Generator for Structured Image Exports"
+st.set_page_config(page_title=doc_title, layout="wide")
+st.title(doc_title)
 
+# Moduswahl: Entweder ZIP-Ordnerstruktur oder einzelne Bilddateien
 MODE = st.radio("Wähle Upload-Methode:", ["Ordnerstruktur (ZIP-Upload)", "Dateinamen (Einzel-Upload)"])
-
 SEPARATOR_OPTIONS = ["-", "_", " ", "."]
 
-# --- COMMON UTILITIES ---
+
+# === UTILITY FUNCTIONS ===
 def extract_zip(zip_file):
+    """Entpackt die ZIP-Datei in ein temporäres Verzeichnis."""
     temp_dir = tempfile.mkdtemp()
     with zipfile.ZipFile(zip_file, 'r') as zip_ref:
         zip_ref.extractall(temp_dir)
     return temp_dir
 
 def get_all_image_paths(directory):
+    """Liest alle Bildpfade aus dem Verzeichnis und Unterverzeichnissen."""
     valid_exts = ['.jpg', '.jpeg', '.png', '.webp']
     image_paths = []
     for root, dirs, files in os.walk(directory):
@@ -31,7 +34,8 @@ def get_all_image_paths(directory):
                 image_paths.append((rel_path, full_path))
     return image_paths
 
-# --- MODE 1: FOLDER STRUCTURE ---
+
+# === MODUS 1: Ordnerstruktur (ZIP) ===
 if MODE == "Ordnerstruktur (ZIP-Upload)":
     zip_file = st.file_uploader("Lade deine ZIP-Datei mit Bildern hoch:", type="zip")
 
@@ -40,6 +44,7 @@ if MODE == "Ordnerstruktur (ZIP-Upload)":
             base_dir = extract_zip(zip_file)
             image_paths = get_all_image_paths(base_dir)
 
+            # Jede Datei analysieren und Ebenen aufschlüsseln
             records = []
             for rel_path, full_path in image_paths:
                 parts = Path(rel_path).parts
@@ -58,7 +63,7 @@ if MODE == "Ordnerstruktur (ZIP-Upload)":
 
         df['Itemcode'] = df[item_col]
         df['Farbcode'] = df[color_col]
-        df['Bildlink'] = df['Pfad']  # Platzhalter
+        df['Bildlink'] = df['Pfad']  # Platzhalter – später ggf. Hosting-Link
 
         final_df = df[['Itemcode', 'Farbcode', 'Bildlink']]
         st.dataframe(final_df)
@@ -68,11 +73,13 @@ if MODE == "Ordnerstruktur (ZIP-Upload)":
 
         shutil.rmtree(base_dir)
 
-# --- MODE 2: FILENAME PARSING ---
+
+# === MODUS 2: Dateinamen-Parsing (Einzeln) ===
 elif MODE == "Dateinamen (Einzel-Upload)":
     uploaded_files = st.file_uploader("Lade deine Bilddateien hoch:", type=['jpg', 'jpeg', 'png', 'webp'], accept_multiple_files=True)
 
     if uploaded_files:
+        # Benutzerdefiniertes Trennzeichen
         separator = st.selectbox("Wähle Trennzeichen im Dateinamen:", SEPARATOR_OPTIONS + ["Custom"])
         custom_sep = ""
         if separator == "Custom":
@@ -80,11 +87,11 @@ elif MODE == "Dateinamen (Einzel-Upload)":
 
         sep = custom_sep if separator == "Custom" else separator
 
+        # Vorschau & Aufteilung
         preview_names = [file.name for file in uploaded_files[:5]]
         st.write("Beispiel Dateinamen:", preview_names)
 
         part_mapping = ["Ignorieren", "Itemcode", "Farbcode", "Eigener Tag"]
-
         example_split = uploaded_files[0].name.split(sep)
         st.write(f"Dateiname aufgeteilt in {len(example_split)} Teile:", example_split)
 
@@ -94,6 +101,7 @@ elif MODE == "Dateinamen (Einzel-Upload)":
             assign = st.selectbox(f"Teil {i+1} ('{part}') ist:", part_mapping, key=f"part_{i}")
             assignments.append(assign)
 
+        # Logik anwenden auf alle
         rows = []
         for file in uploaded_files:
             parts = file.name.split(sep)
