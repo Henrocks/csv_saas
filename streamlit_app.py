@@ -11,7 +11,7 @@ st.set_page_config(page_title="Image CSV Generator", layout="wide")
 st.title("📸 CSV Generator for Structured Image Exports")
 
 # === UI SETUP ===
-MODE = st.radio("Wähle Upload-Methode:", ["Ordnerstruktur (ZIP-Upload)", "Dateinamen (Einzel-Upload)"])
+MODE = st.radio("Wähle Upload-Methode:", ["Ordnerstruktur (ZIP-Upload)", "Dateinamen (Einzel-Upload oder ZIP)"])
 SEPARATOR_OPTIONS = ["-", "_", " ", "."]
 
 # === UTILITIES ===
@@ -46,7 +46,7 @@ if MODE == "Ordnerstruktur (ZIP-Upload)":
                 parts = Path(rel_path).parts
                 records.append({
                     "Pfad": rel_path,
-                    **{f"Ebene {i+1}": parts[i] for i in range(len(parts) - 1)},
+                    **{f"Ebene {i+1}" : parts[i] for i in range(len(parts) - 1)},
                     "Datei": parts[-1]
                 })
 
@@ -61,9 +61,9 @@ if MODE == "Ordnerstruktur (ZIP-Upload)":
             with st.expander(f"{col} (z. B. '{example_value}')"):
                 role = st.selectbox(f"Was ist '{example_value}'?", ["Ignorieren", "Itemcode", "Farbcode", "Custom"], key=f"role_{col}")
                 if role == "Itemcode":
-                    export_df.insert(0, "Itemcode", df[col])
+                    export_df["Itemcode"] = df[col]
                 elif role == "Farbcode":
-                    export_df.insert(1, "Farbcode", df[col])
+                    export_df["Farbcode"] = df[col]
                 elif role == "Custom":
                     custom_label = st.text_input(f"Eigene Bezeichnung für {col}:", key=f"label_{col}")
                     export_df[custom_label] = df[col]
@@ -80,8 +80,21 @@ if MODE == "Ordnerstruktur (ZIP-Upload)":
         shutil.rmtree(base_dir)
 
 # === FILENAME MODE ===
-elif MODE == "Dateinamen (Einzel-Upload)":
-    uploaded_files = st.file_uploader("Lade deine Bilddateien hoch:", type=['jpg', 'jpeg', 'png', 'webp'], accept_multiple_files=True)
+elif MODE == "Dateinamen (Einzel-Upload oder ZIP)":
+    upload_type = st.radio("Was möchtest du hochladen?", ["Einzelne Bilder", "ZIP mit Bildern"])
+
+    uploaded_files = []
+    if upload_type == "Einzelne Bilder":
+        uploaded_files = st.file_uploader("Lade deine Bilddateien hoch:", type=['jpg', 'jpeg', 'png', 'webp'], accept_multiple_files=True)
+    else:
+        zip_file = st.file_uploader("Lade eine ZIP-Datei mit Bildern hoch:", type="zip")
+        if zip_file:
+            extract_dir = extract_zip(zip_file)
+            uploaded_files = []
+            for root, dirs, files in os.walk(extract_dir):
+                for file in files:
+                    if Path(file).suffix.lower() in ['.jpg', '.jpeg', '.png', '.webp']:
+                        uploaded_files.append(Path(root) / file)
 
     if uploaded_files:
         separator = st.selectbox("Wähle Haupt-Trennzeichen im Dateinamen:", SEPARATOR_OPTIONS + ["Custom"])
@@ -97,11 +110,11 @@ elif MODE == "Dateinamen (Einzel-Upload)":
         remove_parts = st.text_input("Entferne Teile aus Dateinamen (kommagetrennt):", value="")
         remove_keywords = [x.strip() for x in remove_parts.split(",") if x.strip()]
 
-        preview_names = [file.name for file in uploaded_files[:5]]
+        preview_names = [str(file.name if hasattr(file, 'name') else file.name) for file in uploaded_files[:5]]
         st.write("Beispiel Dateinamen:", preview_names)
 
         # Aufteilen eines Beispielnamens mit allen Trennern
-        example_name = uploaded_files[0].name
+        example_name = preview_names[0]
         for keyword in remove_keywords:
             example_name = example_name.replace(keyword, "")
         for sp in all_seps:
@@ -117,7 +130,7 @@ elif MODE == "Dateinamen (Einzel-Upload)":
 
         rows = []
         for file in uploaded_files:
-            filename = file.name
+            filename = str(file.name if hasattr(file, 'name') else file.name)
             for keyword in remove_keywords:
                 filename = filename.replace(keyword, "")
             for sp in all_seps:
@@ -130,7 +143,7 @@ elif MODE == "Dateinamen (Einzel-Upload)":
                         mapped[label] += parts[i] + " "
                     else:
                         mapped[label] = parts[i]
-            mapped['Bildlink'] = file.name
+            mapped['Bildlink'] = filename
             rows.append(mapped)
 
         df = pd.DataFrame(rows)
