@@ -8,6 +8,33 @@ import re
 st.set_page_config(page_title="CSV Generator mit Dropbox", layout="wide")
 st.markdown("# CSV Generator mit Dropbox")
 
+# === EINLEITUNG & ANLEITUNG ===
+st.markdown("""
+## 📘 Anleitung
+
+1. **Dropbox-Zugriff vorbereiten**
+   - Erstelle eine Dropbox App mit **App-Folder-Zugriff** unter [Dropbox App Console](https://www.dropbox.com/developers/apps).
+   - Aktiviere die Scopes `files.metadata.read`, `files.content.read`, `sharing.read`.
+   - Generiere ein Access Token.
+
+2. **Token eingeben**
+   - Füge den Token unten ein, um auf deinen App-Folder zuzugreifen.
+
+3. **Methode wählen**
+   - **Ordnerstruktur**: Deine Dateien sind nach `/Itemcode/Farbcode/Bild.jpg` organisiert.
+   - **Dateiname**: Deine Dateinamen enthalten die Infos, z. B. `ITEM-FARBE-DETAIL.jpg`
+
+4. **Regeln definieren**
+   - Je nach Methode kannst du pro Ordner-Ebene oder Dateinamen-Teil sagen, was das bedeutet:
+     - `Itemcode`, `Farbcode`, `Ignorieren` oder `Custom`
+
+5. **Ergebnisse prüfen & CSV herunterladen**
+   - Das Tool zeigt dir eine Vorschau.
+   - Lade die CSV direkt herunter.
+
+---
+""")
+
 # === SESSION STATE ===
 if "dbx_token" not in st.session_state:
     st.session_state.dbx_token = ""
