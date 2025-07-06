@@ -16,6 +16,19 @@ if "folder_mapping" not in st.session_state:
 if "token_mapping" not in st.session_state:
     st.session_state.token_mapping = {}
 
+# === Dropbox: Bestehenden Link oder neuen generieren ===
+def get_shared_link(dbx, path):
+    try:
+        links = dbx.sharing_list_shared_links(path=path, direct_only=True).links
+        if links:
+            return links[0].url.replace("?dl=0", "?raw=1")
+        else:
+            link = dbx.sharing_create_shared_link_with_settings(path).url
+            return link.replace("?dl=0", "?raw=1")
+    except Exception as e:
+        st.warning(f"⚠️ Fehler beim Linkzugriff für {path}: {e}")
+        return ""
+
 # === UI: DROPBOX TOKEN ===
 st.subheader("1. 🔐 Dropbox-Zugriff")
 token = st.text_input("Dropbox Access Token", type="password", value=st.session_state.dbx_token)
@@ -71,7 +84,7 @@ if token:
                     for i, part in enumerate(editable_parts):
                         key = f"level_{i}"
                         val = st.selectbox(
-                            f"Ebene {i+1} – {part}",
+                            f"Ebene {i+1} – Ordnername: '{part}'",
                             ["Ignorieren", "Itemcode", "Farbcode", "Custom"],
                             key=key
                         )
@@ -92,7 +105,7 @@ if token:
                     for i, token in enumerate(tokens):
                         key = f"token_{i}"
                         val = st.selectbox(
-                            f"Token {i+1} – {token}",
+                            f"Token {i+1} – '{token}'",
                             ["Ignorieren", "Itemcode", "Farbcode", "Custom"],
                             key=key
                         )
@@ -101,7 +114,7 @@ if token:
 
                 # === Verarbeitung aller Bilder ===
                 for file in image_files:
-                    link = dbx.sharing_create_shared_link_with_settings(file.path_lower).url.replace("?dl=0", "?raw=1")
+                    link = get_shared_link(dbx, file.path_lower)
                     path_parts = Path(file.path_display).parts
                     filename = Path(file.name).stem
 
@@ -116,7 +129,8 @@ if token:
                                 colorcode = part
 
                     elif method == "Dateiname":
-                        separators = [s for s in st.text_input("", value="-._")]  # dummy fallback
+                        sep_input = st.text_input("", value="-._")  # Dummy zur Laufzeit-Abfrage
+                        separators = [s for s in sep_input]
                         pattern = '|'.join(map(re.escape, separators))
                         tokens = re.split(pattern, filename)
                         itemcode = colorcode = ""
@@ -146,4 +160,3 @@ if token:
         st.error(f"Fehler beim Dropbox-Zugriff: {e}")
 else:
     st.info("Bitte gib dein Dropbox Access Token ein.")
-
