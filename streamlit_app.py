@@ -46,25 +46,26 @@ if MODE == "Ordnerstruktur (ZIP-Upload)":
                 parts = Path(rel_path).parts
                 records.append({
                     "Pfad": rel_path,
-                    **{f"{parts[i]}": parts[i] for i in range(len(parts) - 1)},
+                    **{f"Ebene {i+1}": parts[i] for i in range(len(parts) - 1)},
                     "Datei": parts[-1]
                 })
 
             df = pd.DataFrame(records)
 
         st.subheader("🔧 Ordnerstruktur zuweisen")
-        col_names = [col for col in df.columns if col not in ["Pfad", "Datei"]]
+        col_names = [col for col in df.columns if col.startswith("Ebene")]
         export_df = df.copy()
 
         for col in col_names:
-            with st.expander(f"Ordner '{col}' zuweisen"):
-                role = st.selectbox(f"Rolle für '{col}':", ["Ignorieren", "Itemcode", "Farbcode", "Custom"], key=f"role_{col}")
+            example_value = df[col].iloc[0] if not df[col].isna().all() else "(leer)"
+            with st.expander(f"{col} (z. B. '{example_value}')"):
+                role = st.selectbox(f"Was ist '{example_value}'?", ["Ignorieren", "Itemcode", "Farbcode", "Custom"], key=f"role_{col}")
                 if role == "Itemcode":
                     export_df.insert(0, "Itemcode", df[col])
                 elif role == "Farbcode":
                     export_df.insert(1, "Farbcode", df[col])
                 elif role == "Custom":
-                    custom_label = st.text_input(f"Eigene Bezeichnung für '{col}':", key=f"label_{col}")
+                    custom_label = st.text_input(f"Eigene Bezeichnung für {col}:", key=f"label_{col}")
                     export_df[custom_label] = df[col]
 
         export_df["Bildlink"] = df["Pfad"]
@@ -83,28 +84,32 @@ elif MODE == "Dateinamen (Einzel-Upload)":
     uploaded_files = st.file_uploader("Lade deine Bilddateien hoch:", type=['jpg', 'jpeg', 'png', 'webp'], accept_multiple_files=True)
 
     if uploaded_files:
-        separator = st.selectbox("Wähle Trennzeichen im Dateinamen:", SEPARATOR_OPTIONS + ["Custom"])
+        separator = st.selectbox("Wähle Haupt-Trennzeichen im Dateinamen:", SEPARATOR_OPTIONS + ["Custom"])
         custom_sep = ""
         if separator == "Custom":
             custom_sep = st.text_input("Eigener Trenner (z. B. '__' oder '--'):")
 
         sep = custom_sep if separator == "Custom" else separator
+
+        additional_separators = st.text_input("Weitere Trennzeichen (kommagetrennt):", value="")
+        all_seps = [sep] + [s.strip() for s in additional_separators.split(",") if s.strip()]
+
         remove_parts = st.text_input("Entferne Teile aus Dateinamen (kommagetrennt):", value="")
         remove_keywords = [x.strip() for x in remove_parts.split(",") if x.strip()]
 
         preview_names = [file.name for file in uploaded_files[:5]]
         st.write("Beispiel Dateinamen:", preview_names)
 
-        part_mapping = ["Ignorieren", "Itemcode", "Farbcode", "Eigener Tag"]
-
+        # Aufteilen eines Beispielnamens mit allen Trennern
         example_name = uploaded_files[0].name
         for keyword in remove_keywords:
             example_name = example_name.replace(keyword, "")
-
-        example_split = example_name.split(sep)
-        st.write(f"Dateiname aufgeteilt in {len(example_split)} Teile:", example_split)
+        for sp in all_seps:
+            example_name = example_name.replace(sp, "|")
+        example_split = example_name.split("|")
 
         st.subheader("🔧 Teile zuweisen")
+        part_mapping = ["Ignorieren", "Itemcode", "Farbcode", "Eigener Tag"]
         assignments = []
         for i, part in enumerate(example_split):
             assign = st.selectbox(f"Teil {i+1} ('{part}') ist:", part_mapping, key=f"part_{i}")
@@ -115,7 +120,9 @@ elif MODE == "Dateinamen (Einzel-Upload)":
             filename = file.name
             for keyword in remove_keywords:
                 filename = filename.replace(keyword, "")
-            parts = filename.split(sep)
+            for sp in all_seps:
+                filename = filename.replace(sp, "|")
+            parts = filename.split("|")
             mapped = {"Itemcode": "", "Farbcode": "", "Eigener Tag": ""}
             for i, label in enumerate(assignments):
                 if i < len(parts) and label != "Ignorieren":
