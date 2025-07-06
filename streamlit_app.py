@@ -73,7 +73,11 @@ token = st.text_input("Dropbox Access Token", type="password", value=st.session_
 
 # === UI: METHODE WÄHLEN ===
 st.subheader("2. 📂 Extraktionsmethode wählen")
-method = st.radio("Methode", ["Ordnerstruktur", "Dateiname"])
+method = st.radio(
+    "Methode",
+    ["Ordnerstruktur", "Dateiname"],
+    help="Wähle, ob die Informationen aus dem Pfad der Dropbox-Ordner (Ordnerstruktur) oder aus dem Dateinamen extrahiert werden sollen."
+)
 
 # === Dropbox Initialisierung ===
 if token:
@@ -117,7 +121,7 @@ if token:
                 itemcode = colorcode = ""
 
                 if method == "Ordnerstruktur":
-                    st.subheader("3. 📁 Ordnerstruktur zuordnen")
+                    st.subheader("3. 📁 Ordnerstruktur zuordnen", help="Ordnerstruktur wird von Dropbox gelesen. Du kannst jeder Ebene (z. B. Artikel, Farbe, Kollektion) eine Bedeutung zuweisen.")
                     st.markdown(f"Beispielpfad (tiefster gefunden): `/{'/'.join(example_path_parts)}`")
                     folder_mapping = {}
                     for i, part in enumerate(editable_parts):
@@ -131,7 +135,7 @@ if token:
                     st.session_state.folder_mapping = folder_mapping
 
                 elif method == "Dateiname":
-                    st.subheader("3. 📝 Dateiname analysieren")
+                    st.subheader("3. 📝 Dateiname analysieren", help="Lade deine Datei hoch und gib an, wie sie zerlegt werden soll – z. B. durch Trennzeichen wie `-`, `_` oder `.`. Weise jedem Teil eine Bedeutung zu.")
                     filename = Path(image_files[0].name).stem
                     st.markdown(f"Beispieldatei: `{image_files[0].name}`")
 
