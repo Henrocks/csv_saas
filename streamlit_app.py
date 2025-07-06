@@ -31,7 +31,6 @@ with st.expander("ℹ️ Anleitung anzeigen / ausblenden", expanded=True):
     5. **CSV exportieren**
        - Vorschau prüfen → CSV herunterladen → fertig!
     """)
-""")
 
 # === SESSION STATE ===
 if "dbx_token" not in st.session_state:
