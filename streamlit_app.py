@@ -32,6 +32,11 @@ def get_all_image_paths(directory):
                 image_paths.append((rel_path, full_path))
     return image_paths
 
+# === DROPBOX LINK EINGABE ===
+base_url = st.text_input("🔗 Dropbox-Basislink (optional, endet mit / oder ohne Dateiname):")
+if base_url and not base_url.endswith("/"):
+    base_url += "/"
+
 # === FOLDER STRUCTURE MODE ===
 if MODE == "Ordnerstruktur (ZIP-Upload)":
     zip_file = st.file_uploader("Lade deine ZIP-Datei mit Bildern hoch:", type="zip")
@@ -46,7 +51,7 @@ if MODE == "Ordnerstruktur (ZIP-Upload)":
                 parts = Path(rel_path).parts
                 records.append({
                     "Pfad": rel_path,
-                    **{f"Ebene {i+1}" : parts[i] for i in range(len(parts) - 1)},
+                    **{f"Ebene {i+1}": parts[i] for i in range(len(parts) - 1)},
                     "Datei": parts[-1]
                 })
 
@@ -61,16 +66,17 @@ if MODE == "Ordnerstruktur (ZIP-Upload)":
             with st.expander(f"{col} (z. B. '{example_value}')"):
                 role = st.selectbox(f"Was ist '{example_value}'?", ["Ignorieren", "Itemcode", "Farbcode", "Custom"], key=f"role_{col}")
                 if role == "Itemcode":
-                    export_df["Itemcode"] = df[col]
+                    export_df.insert(0, "Itemcode", df[col])
                 elif role == "Farbcode":
-                    export_df["Farbcode"] = df[col]
+                    export_df.insert(1, "Farbcode", df[col])
                 elif role == "Custom":
                     custom_label = st.text_input(f"Eigene Bezeichnung für {col}:", key=f"label_{col}")
                     export_df[custom_label] = df[col]
 
-        export_df["Bildlink"] = df["Pfad"]
+        export_df["Bildname"] = df["Datei"]
+        export_df["Bildlink"] = base_url + df["Datei"] if base_url else df["Pfad"]
 
-        final_cols = [col for col in export_df.columns if col not in df.columns or col == "Bildlink"]
+        final_cols = [col for col in export_df.columns if col not in df.columns or col in ["Bildlink", "Bildname"]]
         final_df = export_df[final_cols]
         st.dataframe(final_df)
 
@@ -81,22 +87,20 @@ if MODE == "Ordnerstruktur (ZIP-Upload)":
 
 # === FILENAME MODE ===
 elif MODE == "Dateinamen (Einzel-Upload oder ZIP)":
-    upload_type = st.radio("Was möchtest du hochladen?", ["Einzelne Bilder", "ZIP mit Bildern"])
+    zip_file = st.file_uploader("Lade ZIP mit Bildern **oder** einzelne Bilddateien hoch:", type=["zip", "jpg", "jpeg", "png", "webp"], accept_multiple_files=False)
 
-    uploaded_files = []
-    if upload_type == "Einzelne Bilder":
-        uploaded_files = st.file_uploader("Lade deine Bilddateien hoch:", type=['jpg', 'jpeg', 'png', 'webp'], accept_multiple_files=True)
-    else:
-        zip_file = st.file_uploader("Lade eine ZIP-Datei mit Bildern hoch:", type="zip")
-        if zip_file:
-            extract_dir = extract_zip(zip_file)
-            uploaded_files = []
-            for root, dirs, files in os.walk(extract_dir):
-                for file in files:
-                    if Path(file).suffix.lower() in ['.jpg', '.jpeg', '.png', '.webp']:
-                        uploaded_files.append(Path(root) / file)
+    all_files = []
+    if zip_file and zip_file.name.endswith(".zip"):
+        temp_dir = extract_zip(zip_file)
+        all_files = [os.path.join(dp, f) for dp, dn, filenames in os.walk(temp_dir) for f in filenames if f.lower().endswith(('jpg', 'jpeg', 'png', 'webp'))]
+    elif zip_file:
+        st.warning("Bitte aktiviere den Mehrfach-Upload für Einzeldateien.")
 
+    uploaded_files = st.file_uploader("Oder lade mehrere Bilddateien direkt hoch:", type=['jpg', 'jpeg', 'png', 'webp'], accept_multiple_files=True)
     if uploaded_files:
+        all_files += [f.name for f in uploaded_files]
+
+    if all_files:
         separator = st.selectbox("Wähle Haupt-Trennzeichen im Dateinamen:", SEPARATOR_OPTIONS + ["Custom"])
         custom_sep = ""
         if separator == "Custom":
@@ -110,11 +114,11 @@ elif MODE == "Dateinamen (Einzel-Upload oder ZIP)":
         remove_parts = st.text_input("Entferne Teile aus Dateinamen (kommagetrennt):", value="")
         remove_keywords = [x.strip() for x in remove_parts.split(",") if x.strip()]
 
-        preview_names = [str(file.name if hasattr(file, 'name') else file.name) for file in uploaded_files[:5]]
+        preview_names = all_files[:5]
         st.write("Beispiel Dateinamen:", preview_names)
 
-        # Aufteilen eines Beispielnamens mit allen Trennern
-        example_name = preview_names[0]
+        # Beispiel-Split
+        example_name = Path(all_files[0]).name
         for keyword in remove_keywords:
             example_name = example_name.replace(keyword, "")
         for sp in all_seps:
@@ -129,8 +133,8 @@ elif MODE == "Dateinamen (Einzel-Upload oder ZIP)":
             assignments.append(assign)
 
         rows = []
-        for file in uploaded_files:
-            filename = str(file.name if hasattr(file, 'name') else file.name)
+        for file in all_files:
+            filename = Path(file).name
             for keyword in remove_keywords:
                 filename = filename.replace(keyword, "")
             for sp in all_seps:
@@ -143,7 +147,7 @@ elif MODE == "Dateinamen (Einzel-Upload oder ZIP)":
                         mapped[label] += parts[i] + " "
                     else:
                         mapped[label] = parts[i]
-            mapped['Bildlink'] = filename
+            mapped['Bildlink'] = base_url + filename if base_url else filename
             rows.append(mapped)
 
         df = pd.DataFrame(rows)
